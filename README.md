@@ -18,15 +18,11 @@ Stack
 - **Lovable** — interface utilisateur
   
 Structure du repo
-/relocation-risk-tool
-  README.md
-  /docs
-    brief.md          — cahier des charges
-    stack.md          — détail technique de la stack
-    build-log.md      — journal de build session par session
-  /n8n
-    workflow-export.json
-  /data
-    sample-data.csv   — jeu de données fictif (RGPD)
+docs/brief.md — cahier des charges
+docs/stack.md — détail technique de la stack
+docs/build-log.md — journal de build session par session
+n8n/workflow-export.json — export du workflow n8n
+data/sample-data.csv — jeu de données fictif (RGPD)
+
 Statut
 🚧 En cours de build — MVP en développement
