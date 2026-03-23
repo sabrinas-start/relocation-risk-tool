@@ -12,7 +12,11 @@ La fonction s'emballe au-delà de +30 min de trajet supplémentaire
 Risque global = somme pondérée des risques individuels
 
 Stack
-RôleOutilBase de données salariésAirtableOrchestration + appel APIn8nCalcul des trajetsGoogle Maps Distance Matrix APIInterface utilisateurLovable
+- **Airtable** — base de données salariés
+- **n8n** — orchestration + appel API
+- **Google Maps Distance Matrix API** — calcul des trajets
+- **Lovable** — interface utilisateur
+  
 Structure du repo
 /relocation-risk-tool
   README.md
