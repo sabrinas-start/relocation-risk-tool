@@ -46,6 +46,12 @@ si delta > 30       → f = 1 + (delta - 30) / 10   ← s'emballe
 - Résultat : tableau trié par niveau de risque + score global
 - Interface simple, utilisable par un profil RH non technique
  
+## Évolutions prévues post-MVP
+ 
+**Agent IA d'interprétation** *(backlog immédiat)* — Après chaque simulation, un agent basé sur l'API Anthropic produit une synthèse en langage naturel des résultats : profils à risque, lecture croisée score/delta, recommandations. Intégré directement dans l'interface Lovable.
+ 
+**Mode cartographie** *(phase 2)* — Calcul du score de risque sur une grille géographique, affichage d'une carte de chaleur des zones optimales pour le déménagement.
+ 
 ## Décisions d'architecture
  
 **Trajets calculés dynamiquement** — Le temps de trajet actuel n'est pas stocké en base. n8n appelle Google Maps deux fois par salarié à chaque simulation (domicile → locaux actuels, domicile → adresse candidate). La donnée est toujours fraîche et cohérente.
