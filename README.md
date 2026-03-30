@@ -17,24 +17,32 @@ Quand une entreprise déménage, elle risque de perdre ses profils techniques ra
 ## Fonctionnalités
 
 **Simulation**
-- Saisie d'une adresse candidate
+- Saisie d'une adresse candidate + adresse actuelle des locaux (persistée en localStorage)
 - Calcul automatique des trajets via Google Maps (domicile → locaux actuels, domicile → adresse candidate)
 - Score de risque individuel par salarié, trié par criticité
-- Score de risque global avec jauge colorée
-- Lecture croisée score de compétence × delta de trajet
+- Score de risque global avec jauge colorée et légende des seuils
+- Export XLS des résultats (résumé global + détail par salarié)
 
-**Import de la base salariés**
-- Upload CSV depuis l'interface
-- Merge sur identifiant salarié (insert + update, sans suppression)
-- Rapport d'import détaillé (insérés / mis à jour / rejetés avec erreurs)
-- Validation structure et contenu avant insertion
+**Gestion de la base salariés**
+- Import CSV avec merge sur identifiant (`id_salarie`) — insert + update, sans suppression
+- Limite MVP : 50 lignes par import — imports successifs possibles pour les bases plus grandes
+- Rapport d'import détaillé (insérés / mis à jour / rejetés avec détail erreurs ligne par ligne)
+- Compteur salariés en base affiché en temps réel
+- Bouton "Vider la base" pour repartir de zéro avant un réimport complet
+- Export du template CSV pré-formaté
 
 ---
 
 ## Modèle de scoring
 
 ```
-Risque individuel = score_compétence^1.5 × f(delta)
+Risque individuel = (score_compétence^1.5 + tolérance(trajet_actuel)) × f(delta)
+
+tolérance(trajet_actuel) :
+  trajet_actuel ≤ 10        → t = 0
+  10 < trajet_actuel ≤ 20   → t = 0.5
+  20 < trajet_actuel ≤ 30   → t = 1
+  trajet_actuel > 30         → t = 1 + (trajet_actuel - 30) / 15
 
 f(delta) :
   delta ≤ 0        → 0          (trajet raccourci ou identique)
@@ -44,12 +52,11 @@ f(delta) :
 Risque global = somme des risques individuels / nombre total de salariés
 ```
 
-| Indicateur | Vert | Orange | Rouge |
-|---|---|---|---|
-| Risque individuel | 0 – 3 | 3 – 12 | > 12 |
-| Risque global | 0 – 2 | 2 – 6 | > 6 |
+> La tolérance capture le fait qu'un salarié déjà à la limite de son temps de trajet acceptable est plus fragile face à un allongement supplémentaire. Elle s'additionne au score de compétence avant d'être appliquée au delta — les deux dimensions sont indépendantes.
 
-> Le score de compétence est élevé à la puissance 1.5 pour amplifier l'écart entre profils rares et profils courants. Un profil score 5 pèse 11.18, un profil score 2 pèse 2.83.
+> Le score de compétence est élevé à la puissance 1.5 pour amplifier l'écart entre profils rares et profils courants. Lire le tableau en croisant risque individuel et score de compétence.
+
+> Seuils calibrés sur un scénario banlieue → banlieue (~15km max). À revoir si le périmètre de simulation change.
 
 ---
 
@@ -58,7 +65,7 @@ Risque global = somme des risques individuels / nombre total de salariés
 | Rôle | Outil |
 |---|---|
 | Base de données | Airtable |
-| Orchestration + API | n8n |
+| Orchestration + API | n8n (4 workflows) |
 | Calcul trajets | Google Maps Distance Matrix API |
 | Interface | Lovable |
 | Versionning | GitHub |
@@ -71,38 +78,24 @@ Risque global = somme des risques individuels / nombre total de salariés
 Lovable (front)
     │
     ├── POST /webhook/relocation-simulation  ──→  n8n workflow simulation
-    │       { adresse_candidate: "..." }              │
-    │                                                 ├── Airtable (lecture salariés)
-    │                                                 ├── Google Maps API × 2 / salarié
-    │                                                 └── Calcul scoring
+    │       { adresse_candidate: "...",             │
+    │         adresse_actuelle: "..." }             ├── Airtable (lecture salariés)
+    │                                              ├── Google Maps API × 2 / salarié
+    │                                              └── Calcul scoring
     │       ← { risque_global, salaries: [...] }
     │
-    └── POST /webhook/import-salaries        ──→  n8n workflow import
-            { csv: "string brute" }                   │
-                                                      ├── Parse + validation structure
-                                                      ├── Validation contenu ligne par ligne
-                                                      └── Airtable (insert / update par id_salarie)
-            ← { inserts, updates, lignes_rejetees }
-```
-
----
-
-## Structure du repo
-
-```
-/relocation-risk-tool
-  README.md
-  /docs
-    brief.md                              — contexte, périmètre, décisions
-    stack.md                              — détail technique par brique
-    build-log.md                          — journal de build session par session
-    workflow-n8n-documentation.docx       — doc du workflow simulation
-    workflow-import-documentation.docx    — doc du workflow import CSV
-  /n8n
-    workflow-simulation.json              — export workflow n8n simulation
-    workflow-import.json                  — export workflow n8n import CSV
-  /data
-    sample-data.csv                       — jeu de données fictif (10 salariés IDF)
+    ├── POST /webhook/import-salaries        ──→  n8n workflow import CSV
+    │       { csv: "string brute" }                │
+    │                                              ├── Parse + validation structure
+    │                                              ├── Sub-workflow résolution ids
+    │                                              └── Airtable (insert / update)
+    │       ← { statut, inserts, updates, rejetes, lignes_rejetees }
+    │
+    ├── POST /webhook/vider-base             ──→  n8n workflow vider la base
+    │       ← { statut, deleted: N }
+    │
+    └── GET  /webhook/stats-base             ──→  n8n workflow stats
+            ← { nb_salaries: N }
 ```
 
 ---
@@ -121,18 +114,46 @@ Valeurs acceptées pour `mode_transport` : `driving` / `transit` / `bicycling` /
 
 Valeurs acceptées pour `score_competence` : entier entre 1 et 5
 
+> Limite MVP : 50 lignes par import. Pour une base de plus de 50 salariés, effectuer des imports successifs — les lignes déjà présentes sont mises à jour, les nouvelles sont insérées.
+
+---
+
+## Structure du repo
+
+```
+/relocation-risk-tool
+  README.md
+  /docs
+    brief.md
+    stack.md
+    build-log.md
+    workflow-n8n-documentation.docx
+    workflow-import-documentation.docx
+  /n8n
+    workflow-simulation.json
+    workflow-import.json
+    workflow-vider-base.json
+    workflow-stats-base.json
+  /data
+    sample-data.csv
+```
+
 ---
 
 ## Contraintes et limites connues
 
 - **Mono-client** — la base Airtable est partagée, pas d'isolation par client. Extension multi-tenant prévue en V2.
-- **Lecture du tableau** — un delta très élevé sur un profil faible peut dépasser un profil critique modérément impacté. Lire le risque individuel en croisant avec le score de compétence.
-- **Adresses approximées** — Google Maps peut géolocaliser au centre d'un arrondissement si l'adresse est incomplète. Aucune erreur remontée dans ce cas.
+- **Import limité à 50 lignes** — timeout Lovable à 2 min. Imports successifs possibles.
+- **Adresse actuelle persistée en localStorage** — liée au navigateur. Si l'utilisateur change de machine, re-saisie requise une fois. Persistance côté serveur prévue en V2 (multi-tenant).
+- **Lecture du tableau** — un delta très élevé sur un profil faible peut dépasser un profil critique modérément impacté. Croiser risque individuel et score de compétence.
+- **Adresses approximées** — Google Maps peut géolocaliser au centre d'un arrondissement si l'adresse est incomplète, sans remonter d'erreur.
 
 ---
 
 ## Évolutions prévues
 
-- Agent IA d'interprétation des résultats (API Anthropic) — synthèse en langage naturel post-simulation
-- Mode cartographie — carte de chaleur des zones optimales (Phase 2)
-- Multi-tenant — isolation des données par client (Phase 2)
+- Simulation avec horaires réels — `departure_time` = `heure_debut_service` - 40 min par salarié, deux nouveaux champs Airtable (`heure_debut_service`, `heure_fin_service`) — Phase 2
+- Agent IA recommandation zones optimales — suggestions cliquables basées sur distribution géographique des domiciles + scores, clic déclenche simulation directe — Phase 2
+- Mode cartographie — carte de chaleur des zones optimales — Phase 2
+- Multi-tenant — isolation des données par client, adresse actuelle persistée côté serveur — Phase 2
+- Import > 50 lignes en une seule passe — bulk insert — Phase 2
