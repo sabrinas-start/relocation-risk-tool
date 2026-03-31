@@ -1,0 +1,340 @@
+{
+  "name": "Relocation - vider base",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vider-base",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4136aa8d-cc0d-4b9e-b4cf-a3727f30fc83",
+      "name": "Webhook — Vider base",
+      "webhookId": "1ba9804b-c628-4661-8ada-b7db3ed61b33"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appBOvWn5bXbUUafj/Salari%C3%A9s",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields[]",
+              "value": "id_salarie"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "68deee53-cc5e-4ee7-bddb-f4dc0b70725a",
+      "name": "HTTP Request — Get all IDs",
+      "executeOnce": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "Hl8dHfqEu4wFMCXb",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nstore.deleted = 0;\n\nconst records = $input.first().json.records || [];\n\nif (records.length === 0) {\n  return [{ json: { batches: [], total: 0 } }];\n}\n\nconst ids = records.map(r => r.id);\n\nconst batches = [];\nfor (let i = 0; i < ids.length; i += 10) {\n  batches.push(ids.slice(i, i + 10));\n}\n\nreturn batches.map(batch => ({ json: { batch } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        -160
+      ],
+      "id": "9e74954c-291e-4802-a2eb-1172882729dc",
+      "name": "Code — Prépare batches"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        864,
+        -160
+      ],
+      "id": "7a7993b9-a0cf-41c1-898a-9a2c2c8bdcdd",
+      "name": "Loop — Batches"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1216,
+        -16
+      ],
+      "id": "aab410de-7720-4fc0-8c0e-65b521b867f3",
+      "name": "HTTP Request — Delete batch",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "Hl8dHfqEu4wFMCXb",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nconst deleted = $input.first().json.records?.length || 0;\nstore.deleted += deleted;\nreturn [{ json: { deleted_batch: deleted } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -16
+      ],
+      "id": "ea7507f3-c7bc-4f45-a0a0-77bcddcd4189",
+      "name": "Code — Compte supprimés"
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nreturn [{\n  json: {\n    statut: 'ok',\n    deleted: store.deleted\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        -176
+      ],
+      "id": "e21cf093-24c6-4759-8a7f-65fbfe1679f5",
+      "name": "Code — Rapport"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1632,
+        -176
+      ],
+      "id": "8f064b9e-a6a5-44d0-bca8-437475296cbd",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $json.batch;\nconst base = 'https://api.airtable.com/v0/appBOvWn5bXbUUafj/Salari%C3%A9s';\nconst params = batch.map(id => `records[]=${id}`).join('&');\nconst url = `${base}?${params}`;\n\nreturn [{ json: { url, batch } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        -16
+      ],
+      "id": "273ad407-c77f-4cc9-8ad9-ad3446c98b41",
+      "name": "Code — Construit URL DELETE"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4d515eab-a65d-44d1-88a8-e4574e58dad4",
+              "leftValue": "={{ $json.records.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "a8051c22-159b-4aaa-86bd-d5f455f89a6a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"statut\": \"ok\",\n  \"deleted\": 0\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        656,
+        176
+      ],
+      "id": "558ca6e0-8d51-438d-9953-38dc037c9090",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook — Vider base": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request — Get all IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request — Get all IDs": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Prépare batches": {
+      "main": [
+        [
+          {
+            "node": "Loop — Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop — Batches": {
+      "main": [
+        [
+          {
+            "node": "Code — Rapport",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code — Construit URL DELETE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request — Delete batch": {
+      "main": [
+        [
+          {
+            "node": "Code — Compte supprimés",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Compte supprimés": {
+      "main": [
+        [
+          {
+            "node": "Loop — Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Rapport": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Construit URL DELETE": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request — Delete batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code — Prépare batches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "bff156ea-19bc-4c0c-84b3-ef3a17ca1df7",
+  "meta": {
+    "instanceId": "ec910d2f49d5b52f18d558ea5d54375b37ca2682967add778979a2414016d976"
+  },
+  "id": "3SET5oxcKcTYwjzd",
+  "tags": [
+    {
+      "updatedAt": "2026-03-27T14:39:54.417Z",
+      "createdAt": "2026-03-27T14:39:54.417Z",
+      "id": "VVP8sCTUeNjDZfAc",
+      "name": "Relocation tool"
+    }
+  ]
+}

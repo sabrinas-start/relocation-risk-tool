@@ -1,0 +1,802 @@
+{
+  "name": "Relocation-import-csv",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "import-salaries",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "919a5d5e-0dba-485f-9c64-b65ce7b40891",
+      "name": "Webhook — Import CSV",
+      "webhookId": "837f5906-70e2-4c8f-b682-ded3b788f354"
+    },
+    {
+      "parameters": {
+        "jsCode": "const csvString = $input.first().json.body?.csv;\n\nif (!csvString || csvString.trim() === '') {\n  return [{ json: { statut: 'erreur_structure', erreur_structure: 'CSV vide ou absent' } }];\n}\n\nfunction parseCSVLine(line) {\n  const result = [];\n  let current = '';\n  let inQuotes = false;\n  for (let i = 0; i < line.length; i++) {\n    const char = line[i];\n    if (char === '\"') {\n      inQuotes = !inQuotes;\n    } else if (char === ',' && !inQuotes) {\n      result.push(current.trim());\n      current = '';\n    } else {\n      current += char;\n    }\n  }\n  result.push(current.trim());\n  return result;\n}\n\nconst lignes = csvString.trim().split('\\n').map(l => l.trim()).filter(l => l !== '');\n\nif (lignes.length < 2) {\n  return [{ json: { statut: 'erreur_structure', erreur_structure: 'CSV sans données (header seul ou vide)' } }];\n}\n\nconst COLONNES_ATTENDUES = ['id_salarie', 'adresse_domicile', 'mode_transport', 'score_competence'];\n\nconst colonnesRecues = parseCSVLine(lignes[0]).map(c => c.replace(/\"/g, ''));\n\n// Cas 1 : correspondance exacte → structure valide\nif (JSON.stringify(colonnesRecues) === JSON.stringify(COLONNES_ATTENDUES)) {\n  const lignes_valides = [];\n  const lignes_rejetees = [];\n\n  for (let i = 1; i < lignes.length; i++) {\n    const valeurs = parseCSVLine(lignes[i]);\n    const ligne = {};\n    COLONNES_ATTENDUES.forEach((col, idx) => { ligne[col] = valeurs[idx] ?? ''; });\n    ligne._ligne_numero = i + 1;\n    lignes_valides.push(ligne);\n  }\n\n  return [{ json: { statut: 'structure_ok', lignes_valides, lignes_rejetees } }];\n}\n\n// Cas 2 : diagnostic différencié\nconst recuesSet = new Set(colonnesRecues);\nconst attenduesSet = new Set(COLONNES_ATTENDUES);\n\nconst manquantes = COLONNES_ATTENDUES.filter(c => !recuesSet.has(c));\nconst enTrop     = colonnesRecues.filter(c => !attenduesSet.has(c));\n\nlet message;\n\nif (manquantes.length > 0 && enTrop.length === 0) {\n  message = `Colonnes manquantes : ${manquantes.join(', ')}`;\n\n} else if (enTrop.length > 0 && manquantes.length === 0) {\n  message = `Colonnes inattendues : ${enTrop.join(', ')}`;\n\n} else if (manquantes.length > 0 && enTrop.length > 0) {\n  const probableFautes = enTrop.map(recu => {\n    const candidat = manquantes.find(att =>\n      att.startsWith(recu.substring(0, 4)) || recu.startsWith(att.substring(0, 4))\n    );\n    return candidat\n      ? `\"${recu}\" (attendu : \"${candidat}\")`\n      : `\"${recu}\" (inattendue)`;\n  });\n  message = `Colonnes mal orthographiées ou inattendues : ${probableFautes.join(', ')}`;\n\n} else {\n  message = `Ordre des colonnes incorrect. Attendu : ${COLONNES_ATTENDUES.join(', ')} — Reçu : ${colonnesRecues.join(', ')}`;\n}\n\nreturn [{ json: { statut: 'erreur_structure', erreur_structure: message } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "f249ee0c-9fdc-4003-97ad-715dd5495894",
+      "name": "Code — Parse CSV"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nif (input.statut === 'erreur_structure') {\n  return [{ json: input }];\n}\n\nconst modesAutorises = ['driving', 'transit', 'bicycling', 'walking'];\nconst lignesValides = [];\nconst lignesRejetees = [];\n\nfor (const ligne of input.lignes_valides) {   // était : input.lignes\n  const erreurs = [];\n  const id = ligne.id_salarie ? ligne.id_salarie.trim() : null;\n  if (!id) erreurs.push('id_salarie vide');\n  if (!ligne.adresse_domicile) erreurs.push('adresse_domicile vide');\n  if (!ligne.mode_transport || !modesAutorises.includes(ligne.mode_transport)) {\n    erreurs.push(`mode_transport invalide : \"${ligne.mode_transport}\"`);\n  }\n  if (ligne.score_competence === null || isNaN(ligne.score_competence) ||\n      ligne.score_competence < 1 || ligne.score_competence > 5) {\n    erreurs.push(`score_competence invalide : \"${ligne.score_competence}\"`);\n  }\n  if (erreurs.length === 0) {\n    lignesValides.push({ ...ligne, id_salarie: id });\n  } else {\n    lignesRejetees.push({ ...ligne, id_salarie: id, erreurs });\n  }\n}\n\nreturn [{ json: {\n  statut: 'validation_ok',\n  lignes_valides: lignesValides,\n  lignes_rejetees: lignesRejetees\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "a42bbbcd-80e2-4bb3-b127-72b5934d7bd7",
+      "name": "Code — Validation lignes"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1392,
+        -160
+      ],
+      "id": "91a4298a-de8b-4642-8a11-15c0582b0168",
+      "name": "Boucle par ligne"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nif (!input.statut && !input.lignes_valides) {\n  return [{ json: input }];\n}\n\nif (input.statut === 'erreur_structure') {\n  return [{ json: input }];\n}\n\nconst store = $getWorkflowStaticData('global');\nstore.inserts = 0;\nstore.updates = 0;\nstore.lignes_rejetees = input.lignes_rejetees || [];\n\nif (!input.lignes_valides || input.lignes_valides.length === 0) {\n  const rejetees = store.lignes_rejetees.map(l => ({\n    ligne_numero: l._ligne_numero,\n    id_salarie:   l.id_salarie || null,\n    erreurs:      l.erreurs || []\n  }));\n  return [{ json: {\n    statut:          'import_rejete',\n    message:         `Aucune ligne valide — ${rejetees.length} ligne(s) rejetée(s).`,\n    inserts:         0,\n    updates:         0,\n    rejetes:         rejetees.length,\n    lignes_rejetees: rejetees\n  }}];\n}\n\nreturn input.lignes_valides.map(ligne => ({ json: ligne }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "d6933608-ab15-4423-b11f-d1fc057795cb",
+      "name": "Split en items (lignes validées)",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const ids_existants = $json.ids_existants || {};\nconst id_salarie = $json.id_salarie;\nconst record_id = ids_existants[id_salarie];\n\nif (record_id) {\n  return [{ json: { ...$json, id: record_id, found: true } }];\n} else {\n  return [{ json: { ...$json, id: null, found: false } }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        -32
+      ],
+      "id": "952eb863-2968-4bdb-8ae1-1bcec003f355",
+      "name": "Code — Garde-fou search"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "dc1d0ead-fc44-47a5-8de8-34cb721f07c0",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1824,
+        -32
+      ],
+      "id": "9efdf2a9-c143-4d2c-a8cf-58f1c0f80d3d",
+      "name": "IF — id trouvé ?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "https://airtable.com/appBOvWn5bXbUUafj/tblWalWWuL3I31XDo/viwjzyI1SaHPxdm0S?blocks=hide",
+          "mode": "url"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWalWWuL3I31XDo",
+          "mode": "list",
+          "cachedResultName": "Salariés",
+          "cachedResultUrl": "https://airtable.com/appBOvWn5bXbUUafj/tblWalWWuL3I31XDo"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "adresse_domicile": "={{$json.adresse_domicile}}",
+            "score_competence": "={{ Number($json.score_competence) }}",
+            "id_salarie": "={{$json.id_salarie}}",
+            "mode_transport": "={{$json.mode_transport}}"
+          },
+          "matchingColumns": [
+            "id_salarie"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "id_salarie",
+              "displayName": "id_salarie",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "adresse_domicile",
+              "displayName": "adresse_domicile",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "mode_transport",
+              "displayName": "mode_transport",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "transit",
+                  "value": "transit"
+                },
+                {
+                  "name": "driving",
+                  "value": "driving"
+                },
+                {
+                  "name": "bicycling",
+                  "value": "bicycling"
+                },
+                {
+                  "name": "bloup",
+                  "value": "bloup"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score_competence",
+              "displayName": "score_competence",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1984,
+        -80
+      ],
+      "id": "c75919b8-442d-4139-a6ec-4a69ff2ddc94",
+      "name": "Airtable — Update salarié",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "Hl8dHfqEu4wFMCXb",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code JS1 - updated\nconst store = $getWorkflowStaticData('global');\nif (!store.updates) store.updates = 0;\nstore.updates += 1;\nreturn [{ json: { statut_import: 'updated' }}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        -80
+      ],
+      "id": "314a1786-5cba-4c11-a692-9ff522c8885b",
+      "name": "Code — Tag updated"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "https://airtable.com/appBOvWn5bXbUUafj/tblWalWWuL3I31XDo/viwjzyI1SaHPxdm0S?blocks=hide",
+          "mode": "url"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWalWWuL3I31XDo",
+          "mode": "list",
+          "cachedResultName": "Salariés",
+          "cachedResultUrl": "https://airtable.com/appBOvWn5bXbUUafj/tblWalWWuL3I31XDo"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_salarie": "={{$json.id_salarie}}",
+            "adresse_domicile": "={{$json.adresse_domicile}}",
+            "mode_transport": "={{$json.mode_transport}}",
+            "score_competence": "={{ Number($json.score_competence) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id_salarie",
+              "displayName": "id_salarie",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "adresse_domicile",
+              "displayName": "adresse_domicile",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "mode_transport",
+              "displayName": "mode_transport",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "transit",
+                  "value": "transit"
+                },
+                {
+                  "name": "driving",
+                  "value": "driving"
+                },
+                {
+                  "name": "bicycling",
+                  "value": "bicycling"
+                },
+                {
+                  "name": "bloup",
+                  "value": "bloup"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score_competence",
+              "displayName": "score_competence",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1984,
+        128
+      ],
+      "id": "00471ad1-d418-4cd5-ae00-4df7d1a9e2b6",
+      "name": "Airtable — Create salarié",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "Hl8dHfqEu4wFMCXb",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code JS2 - inserted\nconst store = $getWorkflowStaticData('global');\nif (!store.inserts) store.inserts = 0;\nstore.inserts += 1;\nreturn [{ json: { statut_import: 'inserted' }}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        128
+      ],
+      "id": "5a4cdc54-ca0c-4a35-b411-50623ad55065",
+      "name": "Code — Tag inserted"
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\n\nconst inserts  = store.inserts || 0;\nconst updates  = store.updates || 0;\n\nconst lignes_rejetees = (store.lignes_rejetees || []).map(l => ({\n  ligne_numero: l._ligne_numero,\n  id_salarie:   l.id_salarie || null,\n  erreurs:      l.erreurs || []\n}));\n\nconst rejetes = lignes_rejetees.length;\nconst statut  = rejetes === 0 ? 'ok' : 'import_rejete';\nconst message = rejetes === 0\n  ? `Import terminé — ${inserts} insertion(s), ${updates} mise(s) à jour`\n  : `Import terminé avec ${rejetes} ligne(s) rejetée(s) — ${inserts} insertion(s), ${updates} mise(s) à jour`;\n\nreturn [{\n  json: { statut, message, inserts, updates, rejetes, lignes_rejetees }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2336,
+        -176
+      ],
+      "id": "f61eef0a-ead0-494a-99e4-e73680c02509",
+      "name": "Code — Rapport import"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2528,
+        -176
+      ],
+      "id": "20195fc9-26ea-48a9-9040-56842f77da6f",
+      "name": "Respond to Webhook — Lovable"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1232,
+        144
+      ],
+      "id": "0096b829-55db-4b44-9786-7e4ece70048b",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e6793cc9-0059-4bb5-a40d-4ed3f1dd1c13",
+              "leftValue": "={{ $json.statut !== 'erreur_structure' && $json.statut !== 'import_rejete' && $json.inserts === undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        832,
+        0
+      ],
+      "id": "7a934393-9e4c-4762-998c-95209f8b25db",
+      "name": "IF — structure valide ?"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "2RjItT9xWLuQPcH1",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/2RjItT9xWLuQPcH1",
+          "cachedResultName": "Résolution ids — Import CSV"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ids": "={{ $input.all().map(item => item.json.id_salarie) }}",
+            "lignes": "={{ $input.all().map(item => item.json) }}"
+          },
+          "matchingColumns": [
+            "ids"
+          ],
+          "schema": [
+            {
+              "id": "ids",
+              "displayName": "ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            },
+            {
+              "id": "lignes",
+              "displayName": "lignes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1008,
+        -160
+      ],
+      "id": "e679c276-8d81-450a-bd58-b469cfae0236",
+      "name": "Apelle subworkflow - Résolution ids — Import CSV",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        -160
+      ],
+      "id": "7cb42153-159c-475a-8eee-71cad4105952",
+      "name": "Code — Redistribue lignes CSV"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nif (input.statut === 'import_rejete') {\n  // Court-circuit 0 lignes valides — déjà formaté par Code — Eclate\n  return [{ json: input }];\n}\n\n// erreur_structure\nconst erreur = $('Code — Parse CSV').first().json.erreur_structure || 'Structure CSV invalide';\nreturn [{\n  json: {\n    statut: 'erreur_structure',\n    message: erreur,\n    inserts: 0,\n    updates: 0,\n    rejetes: 0,\n    lignes_rejetees: []\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        144
+      ],
+      "id": "14743530-d79c-43bf-a839-28eaf7ea86e3",
+      "name": "Code - Formate erreur structure"
+    }
+  ],
+  "pinData": {
+    "Webhook — Import CSV": [
+      {
+        "json": {
+          "headers": {
+            "host": "testingsab.app.n8n.cloud",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "content-length": "377",
+            "accept": "*/*",
+            "accept-encoding": "gzip, br",
+            "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "cdn-loop": "cloudflare; loops=1; subreqs=1",
+            "cf-connecting-ip": "2a01:e0a:130:41f0:61ee:14a5:537d:cd5a",
+            "cf-ew-via": "15",
+            "cf-ipcountry": "FR",
+            "cf-ray": "9e26f77f8f78d113-CDG",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-worker": "n8n.cloud",
+            "content-type": "application/json",
+            "origin": "https://id-preview--129167f2-9331-4af5-8e0a-41f7be7be9d8.lovable.app",
+            "priority": "u=1, i",
+            "referer": "https://id-preview--129167f2-9331-4af5-8e0a-41f7be7be9d8.lovable.app/",
+            "sec-ch-ua": "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "x-forwarded-for": "2a01:e0a:130:41f0:61ee:14a5:537d:cd5a, 172.71.126.179",
+            "x-forwarded-host": "testingsab.app.n8n.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "traefik-prod-users-gwc-124-5689b98585-l58nq",
+            "x-is-trusted": "yes",
+            "x-real-ip": "2a01:e0a:130:41f0:61ee:14a5:537d:cd5a"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "csv": "\"id_salarie\",\"adresse_domicile\",\"mode_transport\",\"score_competence\"\n\"J76ty@\",\"14 rue de la Roquette 75011 Paris\",\"driving\",\"5\"\n\"\",\"\",\"\",\"\"\n\"546797\",\"3 avenue du Général de Gaulle, 92100 Boulogne-Billancourt\",\"driving\",\"3.5\"\n\"AAAAeeeb§@\",\"27 avenue de la République, 94300 Vincennes\",\"transit\",\"2\"\n\"\",\"\",\"\",\"\"\n"
+          },
+          "webhookUrl": "https://testingsab.app.n8n.cloud/webhook/import-salaries",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook — Import CSV": {
+      "main": [
+        [
+          {
+            "node": "Code — Parse CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Parse CSV": {
+      "main": [
+        [
+          {
+            "node": "Code — Validation lignes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Validation lignes": {
+      "main": [
+        [
+          {
+            "node": "Split en items (lignes validées)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Boucle par ligne": {
+      "main": [
+        [
+          {
+            "node": "Code — Rapport import",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code — Garde-fou search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split en items (lignes validées)": {
+      "main": [
+        [
+          {
+            "node": "IF — structure valide ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Garde-fou search": {
+      "main": [
+        [
+          {
+            "node": "IF — id trouvé ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — id trouvé ?": {
+      "main": [
+        [
+          {
+            "node": "Airtable — Update salarié",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Airtable — Create salarié",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable — Update salarié": {
+      "main": [
+        [
+          {
+            "node": "Code — Tag updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Tag updated": {
+      "main": [
+        [
+          {
+            "node": "Split en items (lignes validées)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable — Create salarié": {
+      "main": [
+        [
+          {
+            "node": "Code — Tag inserted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Tag inserted": {
+      "main": [
+        [
+          {
+            "node": "Split en items (lignes validées)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Rapport import": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook — Lovable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — structure valide ?": {
+      "main": [
+        [
+          {
+            "node": "Apelle subworkflow - Résolution ids — Import CSV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Formate erreur structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apelle subworkflow - Résolution ids — Import CSV": {
+      "main": [
+        [
+          {
+            "node": "Code — Redistribue lignes CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Redistribue lignes CSV": {
+      "main": [
+        [
+          {
+            "node": "Boucle par ligne",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Formate erreur structure": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "cd91cc2d-0f24-441f-8f18-734b92157427",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ec910d2f49d5b52f18d558ea5d54375b37ca2682967add778979a2414016d976"
+  },
+  "id": "JBhAYMwOSCzvg0f9",
+  "tags": [
+    {
+      "updatedAt": "2026-03-27T14:39:54.417Z",
+      "createdAt": "2026-03-27T14:39:54.417Z",
+      "id": "VVP8sCTUeNjDZfAc",
+      "name": "Relocation tool"
+    }
+  ]
+}

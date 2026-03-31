@@ -1,0 +1,130 @@
+{
+  "name": "Résolution ids — Import CSV",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst ids = input.ids || input.body?.ids || [];\n\nconst formule = ids.length === 1\n  ? `{id_salarie}=\"${ids[0]}\"`\n  : `OR(${ids.map(id => `{id_salarie}=\"${id}\"`).join(', ')})`;\n\nreturn [{ json: { formule_filtre: formule, ids } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "a278b608-7563-4f00-831d-cb737d4f7a3e",
+      "name": "Code — Construit formule"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appBOvWn5bXbUUafj/Salari%C3%A9s",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ $json.formule_filtre }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "24a3789c-cefb-4d14-b4ec-fd4b2d2cb394",
+      "name": "HTTP Request",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "Hl8dHfqEu4wFMCXb",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst records = input.records || [];\nconst lignes = $('Execute Workflow Trigger').first().json.lignes || [];\n\nconst ids_existants = {};\nfor (const record of records) {\n  const id_salarie = record.fields?.id_salarie;\n  const record_id = record.id;\n  if (id_salarie && record_id && !ids_existants[id_salarie]) {\n    ids_existants[id_salarie] = record_id;\n  }\n}\n\nreturn lignes.map(ligne => ({\n  json: {\n    ...ligne,\n    score_competence: Number(ligne.score_competence),\n    ids_existants\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "dec28590-b9c7-46c7-bd3e-fb5cd4a45218",
+      "name": "Code — Construit map"
+    },
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"ids\": [\"EMP001\"],\n  \"lignes\": [{ \"id_salarie\": \"EMP001\", \"adresse_domicile\": \"...\", \"mode_transport\": \"driving\", \"score_competence\": 4 }]\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "783b3c41-59f1-4fa8-880a-16f6f671433f",
+      "name": "Execute Workflow Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code — Construit formule": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code — Construit map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code — Construit formule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "633e3c23-d3e1-4356-8ced-bc27179b5a21",
+  "meta": {
+    "instanceId": "ec910d2f49d5b52f18d558ea5d54375b37ca2682967add778979a2414016d976"
+  },
+  "id": "2RjItT9xWLuQPcH1",
+  "tags": [
+    {
+      "updatedAt": "2026-03-27T14:39:54.417Z",
+      "createdAt": "2026-03-27T14:39:54.417Z",
+      "id": "VVP8sCTUeNjDZfAc",
+      "name": "Relocation tool"
+    }
+  ]
+}

@@ -1,0 +1,135 @@
+{
+  "name": "Compteur salariés",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "stats-base",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "da06b833-5086-496b-a40f-c395b36cbdfb",
+      "name": "Webhook — Stats base",
+      "webhookId": "92d13659-d053-49c7-bfcf-8007ca00fb63"
+    },
+    {
+      "parameters": {
+        "jsCode": "const records = $input.first().json.records;\nreturn [{ json: { nb_salaries: records.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "46367c26-8f0f-4f64-8f7b-e61ea62e3bbd",
+      "name": "Code — Rapport stats"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        624,
+        0
+      ],
+      "id": "96969163-83d2-4b9b-84a4-b72e26a1140e",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appBOvWn5bXbUUafj/tblWalWWuL3I31XDo",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "pat0MzeoabRQCLnLV.0dfdd585963bdcfaf4e7c1c84883e1bcf709b36bedca69a493f9820a059cb0cd"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "29912ce6-b34b-4025-bafa-9e415b449cd3",
+      "name": "HTTP Request",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "Hl8dHfqEu4wFMCXb",
+          "name": "Airtable Personal Access Token account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook — Stats base": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Rapport stats": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code — Rapport stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "990ae0cf-ae00-4ce1-bdc2-bc24c9a870eb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ec910d2f49d5b52f18d558ea5d54375b37ca2682967add778979a2414016d976"
+  },
+  "id": "2LCNoVNyoyXR50SM",
+  "tags": [
+    {
+      "updatedAt": "2026-03-27T14:39:54.417Z",
+      "createdAt": "2026-03-27T14:39:54.417Z",
+      "id": "VVP8sCTUeNjDZfAc",
+      "name": "Relocation tool"
+    }
+  ]
+}
