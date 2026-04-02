@@ -1,16 +1,15 @@
 # Relocation Risk Tool
 
-Outil de simulation de risque RH lié à un déménagement de locaux.
+> Remplace une décision de localisation prise à l'aveugle par une simulation chiffrée — en saisissant une adresse candidate, les RH voient immédiatement quels profils clés sont à risque de départ.
 
-Une entreprise saisit une adresse candidate pour ses futurs locaux. L'outil recalcule les trajets domicile/travail de chaque salarié, calcule un score de risque individuel et global, et affiche les résultats dans une interface de décision.
-
-> Projet portfolio — build no-code/IA réalisé dans le cadre d'une reconversion Product Builder.
+**Statut** : MVP en production  
+**Stack** : Airtable · n8n · Google Maps API · Lovable (React)
 
 ---
 
 ## Contexte métier
 
-Quand une entreprise déménage, elle risque de perdre ses profils techniques rares si l'allongement des temps de trajet devient inacceptable. Cet outil permet aux RH de simuler l'impact de plusieurs adresses candidates avant de prendre une décision.
+Quand une entreprise déménage, elle risque de perdre ses profils techniques rares si l'allongement des temps de trajet devient inacceptable. Sans outil, la question *"est-ce qu'on peut déménager là ?"* demande des semaines de collecte manuelle et reste sans réponse fiable. Cet outil permet aux RH de simuler l'impact de plusieurs adresses candidates en quelques secondes, avant de prendre une décision.
 
 ---
 
@@ -147,6 +146,12 @@ Valeurs acceptées pour `score_competence` : entier entre 1 et 5
 - **Adresse actuelle persistée en localStorage** — liée au navigateur. Si l'utilisateur change de machine, re-saisie requise une fois. Persistance côté serveur prévue en V2 (multi-tenant).
 - **Lecture du tableau** — un delta très élevé sur un profil faible peut dépasser un profil critique modérément impacté. Croiser risque individuel et score de compétence.
 - **Adresses approximées** — Google Maps peut géolocaliser au centre d'un arrondissement si l'adresse est incomplète, sans remonter d'erreur.
+
+---
+
+## Compétences mobilisées
+
+`Product thinking` · `Modélisation de données` · `Automatisation n8n` · `API REST` · `Google Maps API` · `Webhooks` · `Logique métier RH` · `React (Lovable)` · `Gestion d'erreurs` · `Tests structurés`
 
 ---
 
