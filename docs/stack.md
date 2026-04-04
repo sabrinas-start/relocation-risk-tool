@@ -24,7 +24,7 @@ Table unique `Salariés` avec 4 colonnes. `trajet_actuel_min` intentionnellement
 | `id_salarie` | Text | Identifiant anonymisé (ex. EMP001) — clé de merge à l'import |
 | `adresse_domicile` | Text | Adresse complète — utilisée directement par Google Maps |
 | `mode_transport` | Single select | `driving` / `transit` / `bicycling` / `walking` — valeurs exactes Maps API |
-| `score_competence` | Number (1–5) | Score défini par les RH |
+| `score_competence` | Number (1–5) | Score défini par les RH — décimales acceptées (ex. 3.5) |
 
 > Note RGPD : pas de nom, prénom, ou données identifiantes. L'`id_salarie` anonymisé est la seule référence.
 
@@ -131,11 +131,7 @@ Réponse : `{ statut: "ok", deleted: N }` — retourne `deleted: 0` sans erreur 
 
 **URL production :** `GET /webhook/stats-base`
 
-Compte le nombre de records via HTTP Request sur l'API REST Airtable. Retourne `{ records: [] }` si la base est vide — le flux continue sans interruption contrairement au node Airtable natif qui coupe le flux sur 0 résultats.
-
-Code node : `const records = $input.first().json.records; return [{ json: { nb_salaries: records.length } }]`
-
-Réponse : `{ nb_salaries: N }` — retourne `0` sans erreur si la base est vide.
+Compte le nombre de records via node Airtable natif (Return All — gère la pagination automatiquement). Réponse : `{ nb_salaries: N }`
 
 ---
 
@@ -189,6 +185,7 @@ Réponse : `{ nb_salaries: N }` — retourne `0` sans erreur si la base est vide
     workflow-stats-base.json
   /data
     sample-data.csv
+  /screenshots
 ```
 
 ---
@@ -196,7 +193,6 @@ Réponse : `{ nb_salaries: N }` — retourne `0` sans erreur si la base est vide
 ## Ce qui est hors scope MVP
 
 - Authentification / gestion des droits
-- Mode cartographie (grille géographique + carte de chaleur) → Phase 2
 - Multi-tenant — isolation des données par client, adresse actuelle persistée côté serveur → Phase 2
 - Synchronisation RH automatique
 - Simulation avec horaires réels — `departure_time` = `heure_debut_service` - 40min, deux nouveaux champs Airtable → Phase 2
