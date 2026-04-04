@@ -176,15 +176,11 @@ Compte le nombre de records via node Airtable natif (Return All — gère la pag
     brief.md
     stack.md                              ← ce fichier
     build-log.md
-    workflow-n8n-documentation.docx
-    workflow-import-documentation.docx
   /n8n
     workflow-simulation.json
     workflow-import.json
     workflow-vider-base.json
     workflow-stats-base.json
-  /data
-    sample-data.csv
   /screenshots
 ```
 
