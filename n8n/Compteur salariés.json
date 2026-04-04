@@ -55,7 +55,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "pat0MzeoabRQCLnLV.0dfdd585963bdcfaf4e7c1c84883e1bcf709b36bedca69a493f9820a059cb0cd"
+              "value": ""
             }
           ]
         },
@@ -71,7 +71,7 @@
       "name": "HTTP Request",
       "credentials": {
         "airtableTokenApi": {
-          "id": "Hl8dHfqEu4wFMCXb",
+          "id": "",
           "name": "Airtable Personal Access Token account 2"
         }
       }
