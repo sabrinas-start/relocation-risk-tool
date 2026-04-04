@@ -141,15 +141,11 @@ Valeurs acceptées pour `score_competence` : nombre entre 1 et 5, décimales acc
     brief.md
     stack.md
     build-log.md
-    workflow-n8n-documentation.docx
-    workflow-import-documentation.docx
   /n8n
     workflow-simulation.json
     workflow-import.json
     workflow-vider-base.json
     workflow-stats-base.json
-  /data
-    sample-data.csv
   /screenshots
 ```
 
