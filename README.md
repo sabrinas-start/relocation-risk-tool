@@ -4,7 +4,7 @@
 
 **Statut** : MVP en production  
 **Stack** : Airtable · n8n · Google Maps API · Lovable (React)  
-**Démo** : [Loom — à insérer]
+**Démo** : [Loom — à venir]
 
 ---
 
