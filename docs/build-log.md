@@ -40,7 +40,6 @@ Webhook → Set → Airtable → Loop
 | 9 | Calcul risque global | Somme filtrée / nb salariés |
 | 10 | Respond to Webhook | Renvoie JSON structuré |
 
-**URL production :** `POST https://testingsab.app.n8n.cloud/webhook/relocation-simulation`
 
 ### Modèle de scoring initial
 ```
