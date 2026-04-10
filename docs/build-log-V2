@@ -385,3 +385,4 @@ Filtre Airtable par correspondance exacte sur `adresse_actuelle`. Retourne simul
 - Simulation avec horaires réels — `departure_time` = `heure_debut_service` - 40 min
 - Page paramètres — seuils configurables via UI, stockés en Airtable
 - Import > 50 lignes — pattern asynchrone avec polling
+- Agent IA recommandation zone optimale
