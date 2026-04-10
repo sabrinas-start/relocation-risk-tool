@@ -1,0 +1,388 @@
+# Build Log — Relocation Risk Tool
+## V2 · Avril 2026
+
+---
+
+## V2.1 — Simulation batch par zone
+*04 – 06 avril 2026*
+
+### Contexte
+
+Démarrage de la V2. Objectif initial : agent IA de suggestion de zones optimales. Abandonné dès la session d'architecture au profit d'une simulation batch sur grille — résultats objectifs, cohérents avec la page Simulation, sans dépendance LLM.
+
+### Décisions d'architecture
+
+**Abandon de l'agent Claude API**
+L'approche agent raisonnait sur des distances à vol d'oiseau — approximation d'une approximation. Remplacé par une simulation batch sur grille de 20 points avec vrais temps de trajet Maps API.
+
+**Architecture : `simulate-batch` + sub-workflow**
+Les boucles imbriquées (20 points × N salariés) ne sont pas supportées en un seul workflow n8n. Pattern retenu : `simulate-batch` appelle un sub-workflow `simulate-one-point` pour chaque point. Testable indépendamment.
+
+**Barycentre pondéré**
+Grille centrée sur un barycentre pondéré par `score_competence`. Un profil 5 attire le centre 2,5× plus fort qu'un profil 2 — le barycentre se rapproche naturellement des zones où vivent les profils critiques.
+
+**Rayon dynamique Haversine**
+Rayon de la grille = distance moyenne à vol d'oiseau entre domiciles salariés et adresse actuelle. Représente ce que les salariés acceptent déjà comme distance. Calculé sans appel API supplémentaire.
+
+**Grille uniforme 4×5**
+20 points répartis uniformément. Distribution concentrique 5+10+5 abandonnée — points intérieurs trop denses, redondants.
+
+**Trajet actuel calculé une seule fois**
+Le trajet domicile → bureau actuel est identique pour tous les 20 points. Calculé en Phase 1, stocké, réutilisé en Phase 2. Évite de multiplier par 20 un calcul identique.
+
+**Batching Maps par 25**
+Maps Distance Matrix API accepte 25 origines par appel. Salariés groupés par `mode_transport` avant découpe en batches. Divise le volume d'appels par 25.
+
+**Limite MVP : 300 salariés synchrone**
+- Phase 1 : 300/25 = 12 appels × ~300ms ≈ 4 secondes
+- Phase 2 : 20 points × 12 appels × ~300ms ≈ 72 secondes
+- Total estimé : ~76 secondes — sous le timeout Lovable (2 min)
+
+---
+
+### Workflow `stats-agent` — `GET /webhook/stats-agent`
+
+| # | Node | Rôle |
+|---|---|---|
+| 1 | Webhook | GET · stats-agent |
+| 2 | HTTP Request Airtable | Lecture tous salariés |
+| 3 | Code - Calcul stats | nb_salaries, nb_geocodes, nb_a_geocoder, derniere_maj |
+| 4 | Respond to Webhook | JSON output |
+
+`derniere_maj` = champ `updated_at` le plus récent parmi les salariés géocodés.
+
+**JSON de sortie :**
+```json
+{
+  "nb_salaries": 27,
+  "nb_geocodes": 27,
+  "nb_a_geocoder": 0,
+  "derniere_maj": "2026-04-04T19:05:40.925Z"
+}
+```
+✅ Validé
+
+---
+
+### Workflow `search-salarie` — `GET /webhook/search-salarie?id=EMP001`
+
+**Incidents rencontrés :**
+- `filterByFormula` syntaxe incorrecte → Fix : `={id_salarie}="{{ $json.query.id }}"` en mode Expression
+- Output mémorisé depuis Execute step → toujours tester via Hoppscotch en production
+
+**JSON de sortie :**
+```json
+{
+  "statut": "ok",
+  "salarie": {
+    "id_salarie": "EMP001",
+    "score_competence": 4,
+    "adresse_geocodee": "14 Rue de la Roquette, 75011 Paris, France",
+    "mode_transport": "transit",
+    "lat": 48.854612,
+    "lng": 2.378965
+  }
+}
+```
+✅ Validé (id existant + id inexistant)
+
+---
+
+### Workflow `simulate-one-point` — `POST /webhook/simulate-one-point`
+
+Sub-workflow appelé par `simulate-batch` pour chaque point candidat. Même logique de scoring que `relocation-simulation` V1. Reçoit les trajets actuels pré-calculés (Phase 1) pour ne pas les recalculer 20 fois.
+
+**Gestion des erreurs Maps — deux niveaux :**
+- Niveau salarié : erreur Maps → exclusion silencieuse
+- Niveau point : si nb_erreurs / nb_salaries_geocodes > 10% → point flaggé `statut: "partiel"` — le workflow ne s'arrête jamais
+
+---
+
+### Workflow `simulate-batch` — `POST /webhook/simulate-batch`
+
+**Body :**
+```json
+{
+  "adresse_actuelle": "24 avenue Kléber, 75016 Paris",
+  "lat_actuelle": 48.8648,
+  "lng_actuelle": 2.2967,
+  "rayon_override": 2
+}
+```
+
+**Flux en 4 phases :**
+1. Lecture salariés Airtable + calcul barycentre pondéré
+2. Phase 1 : calcul trajets actuels pour tous les salariés (batching par mode de transport)
+3. Phase 2 : simulation de chaque point via `simulate-one-point` (20 appels sub-workflow)
+4. Classement des 20 points par `risque_global` croissant + reverse geocoding adresses
+
+### Workflows V2.1 en production
+
+| Workflow | URL | Statut |
+|---|---|---|
+| Géocodage | `POST /webhook/geocode-salaries` | ✅ |
+| Stats agent | `GET /webhook/stats-agent` | ✅ |
+| Recherche salarié | `GET /webhook/search-salarie` | ✅ |
+| Simulate one point | `POST /webhook/simulate-one-point` | ✅ |
+| Simulate batch | `POST /webhook/simulate-batch` | ✅ |
+
+---
+
+## V2.2 — Page Carte interactive
+*07 – 08 avril 2026*
+
+### Contexte
+
+Audit de `simulate-batch` en production sur base réelle → deux limites identifiées sur la grille automatique :
+- **Rayon trop large** : le rayon Haversine moyen tiré par les outliers (médiane 6,4 km vs moyenne 12,2 km)
+- **Grille aveugle** : 20 points uniformes sans tenir compte des transports
+
+**Approche retenue : exploration guidée**
+L'utilisateur visualise où vivent ses profils critiques, clique sur une zone, et lance une simulation resserrée (rayon 2 km) autour de ce point.
+
+### Modification `simulate-batch` — paramètre `rayon_override`
+
+Paramètre optionnel. Si absent → comportement V2.1 (rayon Haversine). Si présent → rayon fixé.
+
+**Incident :** `rayon_override` lu depuis le Set node retournait `null`. Fix : lecture directe depuis le Webhook node (`$('Webhook - simulate-batch').first().json.body.rayon_override`).
+
+✅ Validé : rayon 2 km / rayon 5 km / sans paramètre → comportement V2.1 inchangé.
+
+---
+
+### Workflow `clusters-carte` — `GET /webhook/clusters-carte`
+
+K-means K=4 pondéré par `score_competence`, 3 runs, meilleure inertie. Reverse geocoding des 4 centroïdes via Loop + HTTP Request (`fetch` indisponible en Code node n8n Cloud).
+
+`salaries_output` embarqué dans chaque item centroïde traversant le Loop — nécessaire pour le récupérer en fin de workflow après que le Loop casse la structure d'ensemble.
+
+| # | Node | Rôle |
+|---|---|---|
+| 1 | Webhook | GET · clusters-carte |
+| 2 | Airtable natif | Return All · Filter `NOT({lat} = BLANK())` |
+| 3 | Code - K-means | K=4 pondéré, 3 runs, meilleure inertie |
+| 4 | Loop - Centroides | Batch size 1 |
+| 5 | HTTP - Reverse geocoding | Maps Geocoding API |
+| 6 | Code - Merger label | Fusionne label dans centroïde |
+| 7 | Aggregate | Consolide 4 centroïdes enrichis |
+| 8 | Code - Formatter | Assemble réponse finale |
+| 9 | Respond to Webhook | JSON output |
+
+**JSON de sortie :**
+```json
+{
+  "salaries": [
+    { "id_salarie": "EMP001", "lat": 48.8536, "lng": 2.3708, "score_competence": 5 }
+  ],
+  "clusters": [
+    { "id": 1, "lat_centre": 48.860, "lng_centre": 2.380, "nb_salaries": 7, "nb_score5": 3, "label": "Paris (75011)" }
+  ]
+}
+```
+✅ Validé — pas d'`adresse_domicile` dans `salaries` (hygiène RGPD)
+
+---
+
+### Page Carte — build Lovable
+
+**Décisions de design :**
+- Marqueurs salariés individuels abandonnés au profit des 4 clusters — illisible à grande échelle
+- Clusters : bulles `L.circle` à taille proportionnelle (`nb_salaries`) et couleur selon ratio `nb_score5`
+- Layout 2 colonnes : carte (40%) / tableau résultats (60%) — résout le zoom intempestif au scroll
+- Séparation `lat_actuelle`/`lng_actuelle` (locaux actuels, Phase 1) vs `lat_curseur`/`lng_curseur` (centre grille, Phase 2)
+
+**Incidents rencontrés :**
+
+| # | Symptôme | Cause | Fix |
+|---|---|---|---|
+| 1 | Écran blanc | react-leaflet v5 incompatible React 18 | Migration vers Leaflet vanilla via CDN dans `useEffect` |
+| 2 | Carte invisible | Div conteneur sans hauteur | `style={{ height: '450px' }}` |
+| 3 | Carte invisible dans nouvel onglet | CDN non chargé avant `useEffect` | Init carte dans callback `onload` du script |
+| 4 | Clusters non affichés | `useEffect clusters` avant `mapRef` init | `drawClusters` appelé depuis useEffect init ET useEffect clusters |
+| 5 | Clusters aux mauvaises coordonnées | `c.lat`/`c.lng` au lieu de `c.lat_centre`/`c.lng_centre` | Renommage |
+| 6 | Grille centrée sur barycentre salariés | `lat_bary`/`lng_bary` utilisés à la place du curseur | Séparation `lat_actuelle`/`lat_curseur` dans body et Set node |
+| 7 | Trajets actuels vers le curseur | Confusion après fix #6 | Deux champs distincts dans body et n8n |
+| 8 | Page Simulation en 404 | Route `/simulation` supprimée par Lovable | Route réajoutée dans App.tsx → `Index.tsx` |
+
+**Fonctionnalités validées :**
+- Carte Leaflet stable (CDN, 450px)
+- 4 clusters — bulles proportionnelles, tooltip au survol (nb_salaries, nb_score5)
+- Champ adresse actuelle — autocomplete Places, persistance localStorage
+- Curseur repositionnable au clic
+- Bouton "Simuler cette zone" — disabled jusqu'à adresse + curseur remplis
+- Simulation connectée — grille centrée sur curseur ✅
+- Tableau 20 points — rank, zone, adresse, risque, badge niveau
+- Bouton "Voir le détail" → navigate('/') + pré-remplissage `adresse_candidate` en localStorage
+- Sticky header tableau (`overflow-y-auto` + `max-h-[420px]` requis sur le div parent)
+- Marqueurs 20 points simulés colorés par niveau (`simulationMarkersRef` nettoyé avant chaque simulation)
+- Clic ligne tableau → `mapRef.current.setView([lat, lng], 13)`
+- Bouton recentrer barycentre
+- Persistance historique localStorage — 10 simulations max, expiration 24h
+- Export XLS par simulation (SheetJS — colonnes Rank, Zone, Adresse, Risque, Niveau)
+- Codes couleur bloc état de santé (vert / orange / rouge)
+- Lignes "partiel" : fond grisé + badge coloré selon risque numérique + tooltip
+- Labels badges métier : Faible / Moyen / Élevé / Partiel
+
+---
+
+### Workflow `clusters-carte` en production
+
+| Workflow | URL | Statut |
+|---|---|---|
+| Clusters carte | `GET /webhook/clusters-carte` | ✅ |
+
+---
+
+## V2.3 — Déploiement client : login, quotas, persistance
+*09 avril 2026*
+
+### Contexte
+
+Tests sur base réelle (315 salariés) + décisions de mise à disposition client. Trois chantiers : accès sécurisé, quota d'utilisation, persistance Airtable et cercles permanents.
+
+### Tests sur 315 salariés
+
+| Test | Statut |
+|---|---|
+| Page Simulation end-to-end | ✅ |
+| Page Carte simulation batch plusieurs zones | ✅ (pas de timeout) |
+| Export XLS pages Simulation et Carte | ✅ |
+| Bouton "Voir le détail" → pré-remplissage | ✅ |
+
+### Bugs corrigés
+
+| # | Bug | Fix |
+|---|---|---|
+| 1 | Pagination capée à 100 (`stats-base`, `stats-agent`, `vider-base`) | Remplacement HTTP Request → nœud Airtable natif Return All |
+| 2 | Curseur bloqué sous clusters | `interactive: false` sur layers cluster |
+| 3 | Adresse actuelle perdue au retour page Carte | Init state depuis localStorage au montage sans déclencher `onChange` |
+
+### Analyse consommation n8n
+
+- 1 simulation batch = **21 exécutions** (1 `simulate-batch` + 20 `simulate-one-point`)
+- 1 simulation classique = **1 exécution**
+- Chargement page Carte = **2 exécutions** (`clusters-carte` + `stats-agent`)
+- Estimation totale par quota client : **~705 exécutions**
+- Plan gratuit (2 500 exec/mois) : 3 clients. Plan Pro (10 000 exec/mois) : ~14 clients.
+
+### Chantier 1 — Accès sécurisé
+
+Écran de login `App.tsx` — deux niveaux de mot de passe, flag `mode` persistent en localStorage, bouton déconnexion dans le header.
+
+### Chantier 2 — Quota d'utilisation
+
+**Limites retenues :** 25 simulations batch / 100 simulations classiques par client.
+
+**Table `config` Airtable :**
+
+| Champ | Description |
+|---|---|
+| `quota_batch_restant` | Initialisé à 25 |
+| `quota_simulation_restant` | Initialisé à 100 |
+| `bypass` | Boolean — mode admin, pas de décrémentation |
+
+Flux n8n : lecture quota → si bypass → si quota > 0 → décrémentation + simulation → sinon `{ statut: "quota_atteint" }`. Rechargeable manuellement depuis Airtable.
+
+Nouveau workflow `get-quota` — `GET /webhook/get-quota` — retourne les deux quotas en cours.
+
+### Chantier 3 — Persistance Airtable
+
+**Abandon du localStorage pour la persistance métier** — insuffisant (changement d'appareil, navigation privée).
+
+**Table `simulations_historique` :**
+
+| Champ | Type | Description |
+|---|---|---|
+| `simulation_id` | Number | Numéro incrémental (1 → 25) |
+| `adresse_actuelle` | Text | Clé de filtrage |
+| `lat` / `lng` | Number | Coordonnées du curseur |
+| `timestamp` | DateTime | ISO 8601, Europe/Paris |
+| `niveau` | Text | Faible / Moyen / Élevé |
+| `couleur` | Text | vert / orange / rouge |
+| `resultats_json` | Long text | 20 points stringifiés (~4kb) |
+
+> Règle fondamentale : Airtable est la mémoire permanente. Le client ne supprime jamais un record depuis l'interface.
+
+**Niveau global de la simulation** : couleur dominante par vote majoritaire sur les 20 points (hors partiel). Tie-break vers le plus optimiste.
+
+**Workflow `simulate-batch` — nœuds ajoutés :**
+- `Code - Prépare historique` : calcule `couleur_global` + `niveau_global`
+- `HTTP - Ecrire historique` : POST Airtable `simulations_historique`
+- `Respond to Webhook` mis à jour : inclut `points`, `couleur_global`, `niveau_global`, `simulation_id`
+
+**Nouveau workflow `get-simulations` — `POST /webhook/get-simulations` :**
+Filtre Airtable par correspondance exacte sur `adresse_actuelle`. Retourne simulations[] avec points JSON.parse.
+
+> Risque marginal de filtrage raté si adresse saisie manuellement. Mitigation : l'adresse vient toujours de Google Places Autocomplete.
+
+**Lovable `Carte.tsx` — implémentation en 5 blocs :**
+- **Bloc A** — State nettoyé, `visibleCount` (défaut 5), localStorage historique supprimé
+- **Bloc B** — Fetch `get-simulations` au montage si adresse présente
+- **Bloc C** — Cercles permanents : `L.circle` rayon 2000m + `L.divIcon` numéroté, cercle archivé en pointillé
+- **Bloc D** — `handleSimuler` enrichi : `simulation_id`, `couleur`, `lat_curseur`, `lng_curseur`
+- **Bloc E** — UI : compteur X/25, bouton Effacer, bouton X unitaire, "Charger plus" (+5)
+
+### Chantier 4 — Cercles permanents
+
+- Cercle actif : `fillOpacity: 0.10`, bordure pleine
+- Cercle archivé : `fillOpacity: 0.04`, bordure pointillée `dashArray: "6 4"`
+- Clic cercle → entry remonte en tête, `visibleCount` reset à 5
+
+### Validations V2.3
+
+| Élément | Statut |
+|---|---|
+| simulate-batch write historique Airtable | ✅ |
+| get-simulations filtre adresse | ✅ |
+| simulation_id + couleur_global dans réponse webhook | ✅ |
+| Reconstruction historique au rechargement page | ✅ |
+| Cercles au chargement depuis Airtable | ✅ |
+| Cercles après simulation live | ✅ |
+| Clic cercle → remonte bloc en tête | ✅ |
+| Archivage unitaire et global | ✅ |
+| Pagination 5 / +5 / Charger plus | ✅ |
+| Compteur X/25 | ✅ |
+
+---
+
+## État final — V2
+
+### Workflows en production
+
+| Workflow | URL | Méthode | Statut |
+|---|---|---|---|
+| Simulation | `/webhook/relocation-simulation` | POST | ✅ |
+| Import CSV | `/webhook/import-salaries` | POST | ✅ |
+| Vider la base | `/webhook/vider-base` | POST | ✅ |
+| Stats base | `/webhook/stats-base` | GET | ✅ |
+| Géocodage | `/webhook/geocode-salaries` | POST | ✅ |
+| Stats agent | `/webhook/stats-agent` | GET | ✅ |
+| Recherche salarié | `/webhook/search-salarie` | GET | ✅ |
+| Simulate one point | `/webhook/simulate-one-point` | POST | ✅ |
+| Simulate batch | `/webhook/simulate-batch` | POST | ✅ |
+| Clusters carte | `/webhook/clusters-carte` | GET | ✅ |
+| Get quota | `/webhook/get-quota` | GET | ✅ |
+| Get simulations | `/webhook/get-simulations` | POST | ✅ |
+
+### Pages en production
+
+| Page | Statut |
+|---|---|
+| Simulation | ✅ |
+| Import salariés | ✅ |
+| Carte | ✅ |
+
+### Limites assumées
+
+- Mono-client — base Airtable partagée
+- Import limité à 50 lignes — timeout Lovable
+- Limite 300 salariés (simulation batch) — au-delà, timeout synchrone
+- Correspondance exacte sur `adresse_actuelle` pour l'historique — normalisée via Places
+
+### Backlog V3+
+
+- Multi-tenant — isolation des données par client
+- Simulation avec horaires réels — `departure_time` = `heure_debut_service` - 40 min
+- Page paramètres — seuils configurables via UI, stockés en Airtable
+- Import > 50 lignes — pattern asynchrone avec polling
+- Agent IA recommandation zone optimale
