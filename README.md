@@ -171,11 +171,10 @@ Valeurs acceptées pour `score_competence` : entier entre 1 et 5
   README.md
   /docs
     brief.md
-    brief-v2.md
     stack.md
     build-log.md
-    workflow-n8n-documentation.docx
-    relocation-risk-v2-presentation.docx
+    build-log-V2.md
+    case-study.md
   /n8n
     workflow-relocation-simulation.json
     workflow-import-salaries.json
